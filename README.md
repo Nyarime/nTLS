@@ -14,7 +14,7 @@ TCP 传输协议，fake-tls 证书克隆 + WebSocket 伪装 + PSK 认证。[NRUP
 go get github.com/nyarime/nrtp@v1.0.0
 ```
 
-## Naixi 协议栈
+## 协议对比
 
 | | NRUP | NRTP |
 |---|---|---|
