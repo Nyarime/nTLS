@@ -35,6 +35,7 @@ type Config struct {
 	CertFile string // file模式: 证书路径
 	KeyFile  string // file模式: 私钥路径
 	ACMEHost string // acme模式: 域名
+	WS       *WSConfig // ws模式配置
 }
 
 // Listener nTLS服务端
