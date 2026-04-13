@@ -10,7 +10,9 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/binary"
 	"crypto/subtle"
 	"crypto/tls"
 	utls "github.com/refraction-networking/utls"
@@ -152,14 +154,34 @@ func (l *Listener) Close() error {
 // 认证客户端 → 自己处理TLS → 代理模式
 // 非认证客户端 → 整个连接转发到真实服务器
 // realityKnock 生成暗号(前3字节PSK派生)
-// realityKnock 生成16字节认证标记（藏入ClientHello SessionID）
-func realityKnock(psk []byte) []byte {
-	h := sha256.Sum256(append([]byte("nrtp-reality:"), psk...))
-	return h[:16]
+// realitySignal 生成16字节认证信号（timestamp+HMAC防重放）
+// 前8字节: unix timestamp (大端序)
+// 后8字节: HMAC-SHA256(PSK, "nrtp:" + timestamp)[:8]
+func realitySignal(psk []byte) []byte {
+	ts := make([]byte, 8)
+	binary.BigEndian.PutUint64(ts, uint64(time.Now().Unix()))
+	mac := hmac.New(sha256.New, psk)
+	mac.Write([]byte("nrtp:"))
+	mac.Write(ts)
+	sig := make([]byte, 16)
+	copy(sig[:8], ts)
+	copy(sig[8:], mac.Sum(nil)[:8])
+	return sig
+}
+
+// verifyRealitySignal 验证信号（±90秒时间窗）
+func verifyRealitySignal(signal, psk []byte) bool {
+	if len(signal) < 16 { return false }
+	ts := int64(binary.BigEndian.Uint64(signal[:8]))
+	now := time.Now().Unix()
+	if now-ts > 90 || ts-now > 90 { return false }
+	mac := hmac.New(sha256.New, psk)
+	mac.Write([]byte("nrtp:"))
+	mac.Write(signal[:8])
+	return subtle.ConstantTimeCompare(mac.Sum(nil)[:8], signal[8:16]) == 1
 }
 
 func (l *Listener) acceptFakeTLS() (net.Conn, error) {
-	knock := realityKnock(l.psk)
 
 	for {
 		conn, err := l.raw.Accept()
@@ -188,7 +210,7 @@ func (l *Listener) acceptFakeTLS() (net.Conn, error) {
 			sidLen := int(peekBuf[43])
 			if sidLen >= 16 && 44+sidLen <= n {
 				sid := peekBuf[44 : 44+sidLen]
-				isOurs = subtle.ConstantTimeCompare(sid[:16], knock) == 1
+				isOurs = verifyRealitySignal(sid[:16], l.psk)
 			}
 		}
 
@@ -331,7 +353,7 @@ func dialFakeTLS(addr string, cfg *Config, psk []byte) (net.Conn, error) {
 	}
 
 	// 零字节Reality: knock藏入ClientHello SessionID
-	signal := realityKnock(psk)
+	signal := realitySignal(psk)
 	sessionID := make([]byte, 32)
 	copy(sessionID[:16], signal)
 	rand.Read(sessionID[16:])
