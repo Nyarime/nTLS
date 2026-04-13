@@ -16,6 +16,7 @@ type SmartTransport struct {
 	rttSum        time.Duration
 	rttCount      int64
 	checkInterval time.Duration
+	stopCh        chan struct{}
 }
 
 // TransportMode 传输模式
@@ -70,9 +71,16 @@ func (st *SmartTransport) RecordRecv(rtt time.Duration) {
 }
 
 func (st *SmartTransport) monitor() {
+	if st.stopCh == nil { st.stopCh = make(chan struct{}) }
 	ticker := time.NewTicker(st.checkInterval)
-	for range ticker.C {
+	for {
+		select {
+		case <-st.stopCh:
+			ticker.Stop()
+			return
+		case <-ticker.C:
 		st.evaluate()
+		}
 	}
 }
 
@@ -174,4 +182,9 @@ func (af *AutoFallback) Mode() string {
 	af.mu.Lock()
 	defer af.mu.Unlock()
 	return af.current
+}
+
+// Stop 停止监控goroutine
+func (st *SmartTransport) Stop() {
+	close(st.stopCh)
 }

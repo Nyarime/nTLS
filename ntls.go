@@ -224,7 +224,7 @@ func proxyToRealWithData(client net.Conn, firstData []byte, sni string) {
 		addr = sni + ":443"
 	}
 	remote, err := net.DialTimeout("tcp", addr, 10*time.Second)
-	if err != nil { return }
+	if err != nil { log.Printf("[NRTP] proxy to %s failed: %v", addr, err); return }
 	defer remote.Close()
 	remote.Write(firstData)
 	done := make(chan struct{}, 2)

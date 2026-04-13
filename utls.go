@@ -2,13 +2,14 @@ package nrtp
 
 import (
 	"net"
+	"time"
 
 	utls "github.com/refraction-networking/utls"
 )
 
 // DialUTLS 使用Chrome指纹的TLS连接（DPI无法区分真实浏览器）
 func DialUTLS(addr, sni string) (net.Conn, error) {
-	rawConn, err := net.DialTimeout("tcp", addr, 10*1e9)
+	rawConn, err := net.DialTimeout("tcp", addr, 10*time.Second)
 	if err != nil {
 		return nil, err
 	}
