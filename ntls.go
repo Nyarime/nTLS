@@ -154,21 +154,40 @@ func (l *Listener) acceptFakeTLS() (net.Conn, error) {
 			return nil, err
 		}
 
-		// 所有连接都做 TLS 握手（用自签名证书，CN=目标域名）
+		// Peek前5字节判断TLS ClientHello
+		peekBuf := make([]byte, 5)
+		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		n, err := io.ReadFull(conn, peekBuf)
+		conn.SetReadDeadline(time.Time{})
+		if err != nil || n < 5 {
+			conn.Close()
+			continue
+		}
+
+		// TLS ClientHello: type=22, version>=0x0301, length
+		isTLS := peekBuf[0] == 22 && peekBuf[1] >= 3
+
+		if !isTLS {
+			// 非TLS流量 → 直接转发到真实服务器（零污染）
+			go proxyToRealWithData(conn, peekBuf[:n], l.cfg.SNI)
+			continue
+		}
+
+		// 是TLS → 拼回已读数据 + 做自己的TLS握手
+		prefixed := &prefixConn{prefix: peekBuf[:n], Conn: conn}
 		tlsCfg := &tls.Config{
 			Certificates: []tls.Certificate{l.cert},
 			MinVersion:   tls.VersionTLS12,
 		}
-		tlsConn := tls.Server(conn, tlsCfg)
+		tlsConn := tls.Server(prefixed, tlsCfg)
 		if err := tlsConn.Handshake(); err != nil {
-			// TLS握手失败 → 可能是非TLS客户端 → 转发到真实服务器
-			go proxyToReal(conn, l.cfg.SNI)
+			// TLS握手失败 → 转发到真实服务器
+			conn.Close()
 			continue
 		}
 
-		// TLS握手成功 → 检查PSK认证
+		// PSK认证
 		if err := serverAuth(tlsConn, l.psk); err != nil {
-			// PSK失败 → 回落处理
 			if l.cfg.FallbackCfg != nil {
 				go l.cfg.FallbackCfg.Handle(tlsConn)
 			} else {
@@ -181,8 +200,24 @@ func (l *Listener) acceptFakeTLS() (net.Conn, error) {
 	}
 }
 
-// proxyToReal 转发非TLS连接到真实服务器
-func proxyToReal(client net.Conn, sni string) {
+// prefixConn 把已读数据拼回连接前面
+type prefixConn struct {
+	prefix []byte
+	offset int
+	net.Conn
+}
+
+func (c *prefixConn) Read(p []byte) (int, error) {
+	if c.offset < len(c.prefix) {
+		n := copy(p, c.prefix[c.offset:])
+		c.offset += n
+		return n, nil
+	}
+	return c.Conn.Read(p)
+}
+
+// proxyToRealWithData 转发到真实服务器（带已读数据）
+func proxyToRealWithData(client net.Conn, firstData []byte, sni string) {
 	defer client.Close()
 	addr := sni
 	if _, _, err := net.SplitHostPort(addr); err != nil {
@@ -191,13 +226,14 @@ func proxyToReal(client net.Conn, sni string) {
 	remote, err := net.DialTimeout("tcp", addr, 10*time.Second)
 	if err != nil { return }
 	defer remote.Close()
+	remote.Write(firstData)
 	done := make(chan struct{}, 2)
 	go func() { io.Copy(remote, client); done <- struct{}{} }()
 	go func() { io.Copy(client, remote); done <- struct{}{} }()
 	<-done
 }
 
-// proxyToReal 把非认证连接转发到真实服务器
+// proxyToReal 转发非TLS连接到真实服务器
 
 // checkfake-tlsAuth 检查ClientHello的SessionID是否包含HMAC认证
 // ClientHello格式: [1B type=22][2B version][2B length][1B handshake_type=1]...
