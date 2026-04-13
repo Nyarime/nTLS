@@ -167,19 +167,24 @@ func (l *Listener) acceptFakeTLS() (net.Conn, error) {
 			return nil, err
 		}
 
-		// Peek ClientHello解析SessionID
+		// Peek ClientHello + 解析SessionID
 		peekBuf := make([]byte, 1024)
-		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-		n, err := conn.Read(peekBuf)
+		conn.SetReadDeadline(time.Now().Add(8 * time.Second))
+		n := 0
+		for n < 44 { // 至少读44字节(TLS header + SessionID offset)
+			nn, err := conn.Read(peekBuf[n:])
+			if err != nil { break }
+			n += nn
+		}
 		conn.SetReadDeadline(time.Time{})
-		if err != nil || n < 44 {
+		if n < 44 {
 			conn.Close()
 			continue
 		}
 
 		// 解析SessionID检查knock
 		isOurs := false
-		if n >= 44 && peekBuf[0] == 22 { // TLS Handshake
+		if peekBuf[0] == 22 && peekBuf[5] == 1 { // TLS Handshake + ClientHello
 			sidLen := int(peekBuf[43])
 			if sidLen >= 16 && 44+sidLen <= n {
 				sid := peekBuf[44 : 44+sidLen]
