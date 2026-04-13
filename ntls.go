@@ -13,6 +13,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"crypto/tls"
+	"golang.org/x/crypto/acme/autocert"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -38,6 +39,7 @@ type Config struct {
 
 	// Pro 特性
 	UseUTLS    bool      // 客户端用Chrome指纹TLS
+	UTLSFingerprint string // chrome(默认)/firefox/safari/edge/ios/android/random
 	FallbackCfg *Fallback // 回落配置 (portal/proxy/static)
 }
 
@@ -271,7 +273,7 @@ func Dial(addr string, cfg *Config) (net.Conn, error) {
 		var conn net.Conn
 		var err error
 		if cfg.UseUTLS {
-			conn, err = DialUTLS(addr, sni)
+			conn, err = DialUTLS(addr, sni, cfg.UTLSFingerprint)
 		} else {
 			conn, err = tls.Dial("tcp", addr, &tls.Config{
 				ServerName:         sni,
@@ -305,7 +307,7 @@ func dialFakeTLS(addr string, cfg *Config, psk []byte) (net.Conn, error) {
 	var conn net.Conn
 	var err error
 	if cfg.UseUTLS {
-		conn, err = DialUTLS(addr, sni)
+		conn, err = DialUTLS(addr, sni, cfg.UTLSFingerprint)
 	} else {
 		conn, err = tls.Dial("tcp", addr, &tls.Config{
 			ServerName:         sni,
@@ -390,9 +392,16 @@ func makeTLSConfig(cfg *Config) (*tls.Config, error) {
 		if err != nil { return nil, err }
 		return &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}, nil
 	case "acme":
-		// TODO: autocert集成
-		cert := mustSelfSign(cfg.SNI)
-		return &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}, nil
+		host := cfg.ACMEHost
+		if host == "" { host = cfg.SNI }
+		if host == "" { return nil, errors.New("acme需要ACMEHost或SNI") }
+		m := &autocert.Manager{
+			Prompt:     autocert.AcceptTOS,
+			HostPolicy: autocert.HostWhitelist(host),
+			Cache:      autocert.DirCache(".nrtp-certs"),
+		}
+		log.Printf("[NRTP] ACME: %s", host)
+		return m.TLSConfig(), nil
 	default:
 		cn := cfg.SNI
 		if cn == "" { cn = "localhost" }
