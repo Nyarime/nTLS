@@ -98,3 +98,22 @@ go get github.com/nyarime/nrtp@v1.1.0
 ```
 
 Modes: `none` / `tls` / `fake-tls` (fake-tls) / `ws` (WebSocket over TLS)
+
+## CDN Fronting (Cloudflare)
+
+```go
+cfg := &nrtp.Config{
+    Password: "secret",
+    Mode:     "ws",
+    WS: &nrtp.WSConfig{
+        Path: "/ws",
+        SNI:  "www.visa.com",  // CF背后的域名
+        Headers: map[string]string{
+            "Host":       "your-real-domain.com",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        },
+    },
+}
+```
+
+DPI 看到: TLS SNI=www.visa.com + 正常Chrome流量
