@@ -40,7 +40,7 @@ conn, _ := nrtp.Dial("server:443", &nrtp.Config{
 })
 ```
 
-## fake-tls (fake-tls)
+## fake-tls
 
 非认证访问转发到真实服务器，DPI 看到真实 VPN 在握手：
 
