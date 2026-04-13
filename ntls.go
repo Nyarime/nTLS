@@ -29,13 +29,14 @@ import (
 // Config nTLS配置
 type Config struct {
 	Password string    // PSK密码
-	Mode     string    // none / tls / fake-tls / ws
+	Mode     string    // none / tls / fake-tls / ws / xhttp
 	SNI      string    // fake-tls: 代理目标 / tls: 证书CN
 	CertMode string    // tls模式: self(默认) / file / acme
 	CertFile string    // file模式: 证书路径
 	KeyFile  string    // file模式: 私钥路径
 	ACMEHost string    // acme模式: 域名
 	WS       *WSConfig // ws模式配置
+	XHTTP    *XHTTPConfig // xhttp模式配置
 
 	// Pro 特性
 	UseUTLS    bool      // 客户端用Chrome指纹TLS
