@@ -1,4 +1,4 @@
-module github.com/nyarime/ntls
+module github.com/nyarime/nrtp
 
 go 1.22
 

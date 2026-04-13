@@ -4,7 +4,7 @@
 //   - none:     Plain TCP + PSK auth (LAN/internal)
 //   - tls:      TLS + PSK auth (dedicated line, self-signed/ACME cert)
 //   - fake-tls: Reality - proxy to real server for non-auth clients (cross-border)
-package ntls
+package nrtp
 
 import (
 	"crypto/ecdsa"

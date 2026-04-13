@@ -1,4 +1,4 @@
-package ntls
+package nrtp
 
 import (
 	"testing"

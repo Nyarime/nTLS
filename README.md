@@ -1,12 +1,12 @@
-# nTLS
+# NRTP
 
 TCP 传输库，证书镜像 + PSK 认证。[NRUP](https://github.com/Nyarime/NRUP) 的 TCP 对应。
 
 [English](#english)
 
-## NRUP + nTLS
+## NRUP + NRTP
 
-| | NRUP | nTLS |
+| | NRUP | NRTP |
 |---|---|---|
 | 传输层 | UDP | TCP |
 | 加密 | nDTLS (AES-GCM/ChaCha20) | TLS 1.2+ |
@@ -19,18 +19,18 @@ TCP 传输库，证书镜像 + PSK 认证。[NRUP](https://github.com/Nyarime/NR
 ## 使用
 
 ```go
-import "github.com/nyarime/ntls"
+import "github.com/nyarime/nrtp"
 
 // 服务端
-cfg := &ntls.Config{
+cfg := &nrtp.Config{
     Password: "secret",
     SNI:      "vpn2fa.hku.hk",  // 自动镜像证书
 }
-listener, _ := ntls.Listen(":443", cfg)
+listener, _ := nrtp.Listen(":443", cfg)
 conn, _ := listener.Accept()
 
 // 客户端
-conn, _ := ntls.Dial("server:443", cfg)
+conn, _ := nrtp.Dial("server:443", cfg)
 conn.Write([]byte("hello"))
 ```
 
@@ -55,10 +55,10 @@ TCP transport library with certificate mirroring + PSK auth. TCP counterpart to 
 
 ```go
 // Server (mirrors cert from real VPN server)
-cfg := &ntls.Config{Password: "secret", SNI: "vpn2fa.hku.hk"}
-listener, _ := ntls.Listen(":443", cfg)
+cfg := &nrtp.Config{Password: "secret", SNI: "vpn2fa.hku.hk"}
+listener, _ := nrtp.Listen(":443", cfg)
 conn, _ := listener.Accept()
 
 // Client
-conn, _ := ntls.Dial("server:443", cfg)
+conn, _ := nrtp.Dial("server:443", cfg)
 ```
