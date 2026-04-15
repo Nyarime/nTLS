@@ -239,7 +239,22 @@ func (l *Listener) acceptFakeTLS() (net.Conn, error) {
 
 		log.Printf("[Reality] isOurs=%v n=%d peek[0]=%d", isOurs, n, peekBuf[0])
 		if !isOurs {
-			go proxyToRealWithData(conn, peekBuf[:n], l.cfg.SNI)
+			if l.cfg.FallbackCfg != nil {
+				// v1.5.3: 回落Portal (同端口)
+				prefixed := &prefixConn{prefix: peekBuf[:n], Conn: conn}
+				tlsCfg := &tls.Config{
+					Certificates: []tls.Certificate{l.cert},
+					MinVersion:   tls.VersionTLS12,
+				}
+				tlsConn := tls.Server(prefixed, tlsCfg)
+				if err := tlsConn.Handshake(); err == nil {
+					go l.cfg.FallbackCfg.Handle(tlsConn)
+				} else {
+					conn.Close()
+				}
+			} else {
+				go proxyToRealWithData(conn, peekBuf[:n], l.cfg.SNI)
+			}
 			continue
 		}
 

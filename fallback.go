@@ -46,7 +46,7 @@ func (f *Fallback) Handle(conn net.Conn) {
 		conn.Write([]byte("HTTP/1.1 200 OK\r\nServer: nginx/1.24.0\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n" + body))
 
 	default: // portal
-		PortalFallback(conn)
+		PortalServeHTTP(conn)
 	}
 }
 
