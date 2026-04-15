@@ -2,13 +2,13 @@ package nrtp
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 )
 
-// Fallback 统一回落处理
 type Fallback struct {
 	Mode        string
 	Target      string
@@ -17,7 +17,6 @@ type Fallback struct {
 
 func (f *Fallback) Handle(conn net.Conn) {
 	defer conn.Close()
-
 	switch f.Mode {
 	case "handler":
 		if f.HTTPHandler != nil {
@@ -42,42 +41,39 @@ func serveHTTPOnConn(conn net.Conn, handler http.Handler) {
 		req, err := http.ReadRequest(br)
 		if err != nil { return }
 
-		rw := &connResponseWriter{
-			conn:   conn,
+		// 缓冲响应body以计算Content-Length
+		rw := &bufferedResponseWriter{
 			header: make(http.Header),
+			body:   &bytes.Buffer{},
 		}
 		handler.ServeHTTP(rw, req)
 		req.Body.Close()
 
-		if req.Header.Get("Connection") == "close" { return }
-	}
-}
-
-type connResponseWriter struct {
-	conn        net.Conn
-	header      http.Header
-	statusCode  int
-	wroteHeader bool
-}
-
-func (w *connResponseWriter) Header() http.Header { return w.header }
-
-func (w *connResponseWriter) WriteHeader(code int) {
-	if w.wroteHeader { return }
-	w.wroteHeader = true
-	w.statusCode = code
-
-	resp := fmt.Sprintf("HTTP/1.1 %d %s\r\n", code, http.StatusText(code))
-	for k, vs := range w.header {
-		for _, v := range vs {
-			resp += fmt.Sprintf("%s: %s\r\n", k, v)
+		// 写完整HTTP响应
+		code := rw.statusCode
+		if code == 0 { code = 200 }
+		
+		resp := fmt.Sprintf("HTTP/1.1 %d %s\r\n", code, http.StatusText(code))
+		rw.header.Set("Content-Length", fmt.Sprintf("%d", rw.body.Len()))
+		rw.header.Set("Connection", "close")
+		for k, vs := range rw.header {
+			for _, v := range vs {
+				resp += fmt.Sprintf("%s: %s\r\n", k, v)
+			}
 		}
+		resp += "\r\n"
+		conn.Write([]byte(resp))
+		conn.Write(rw.body.Bytes())
+		return // Connection: close
 	}
-	resp += "\r\n"
-	w.conn.Write([]byte(resp))
 }
 
-func (w *connResponseWriter) Write(b []byte) (int, error) {
-	if !w.wroteHeader { w.WriteHeader(200) }
-	return w.conn.Write(b)
+type bufferedResponseWriter struct {
+	header     http.Header
+	body       *bytes.Buffer
+	statusCode int
 }
+
+func (w *bufferedResponseWriter) Header() http.Header { return w.header }
+func (w *bufferedResponseWriter) WriteHeader(code int) { w.statusCode = code }
+func (w *bufferedResponseWriter) Write(b []byte) (int, error) { return w.body.Write(b) }
