@@ -241,7 +241,22 @@ func (l *Listener) acceptFakeTLS() (net.Conn, error) {
 		if !isOurs {
 			if l.cfg.SNI != "" {
 				// Reality模式: 反代源站(真证书+真内容)
-				go proxyToRealWithData(conn, peekBuf[:n], l.cfg.SNI)
+				// 连不上源站→降级本地Portal(熔断)
+				go func() {
+					err := proxyToRealWithTimeout(conn, peekBuf[:n], l.cfg.SNI, 5*time.Second)
+					if err != nil && l.cfg.FallbackCfg != nil {
+						// 源站不可达→本地Portal兜底
+						log.Printf("[Reality] proxyToReal失败, 降级本地Portal: %v", err)
+						prefixed := &prefixConn{prefix: peekBuf[:n], Conn: conn}
+						tlsCfg := ciscoASATLSConfig(l.cert)
+						tlsConn := tls.Server(prefixed, tlsCfg)
+						if err := tlsConn.Handshake(); err == nil {
+							l.cfg.FallbackCfg.Handle(tlsConn)
+						} else {
+							conn.Close()
+						}
+					}
+				}()
 			} else if l.cfg.FallbackCfg != nil {
 				// 非Reality: 本地Portal(自签证书)
 				prefixed := &prefixConn{prefix: peekBuf[:n], Conn: conn}
@@ -546,4 +561,25 @@ func ciscoASATLSConfig(cert tls.Certificate) *tls.Config {
 		// 禁用session ticket(ASA行为)
 		SessionTicketsDisabled: false,
 	}
+}
+
+// proxyToRealWithTimeout 带超时的proxyToReal, 失败返回error
+func proxyToRealWithTimeout(client net.Conn, firstData []byte, sni string, timeout time.Duration) error {
+	addr := sni
+	if _, _, err := net.SplitHostPort(addr); err != nil {
+		addr = sni + ":443"
+	}
+	backend, err := net.DialTimeout("tcp", addr, timeout)
+	if err != nil {
+		return err
+	}
+	defer backend.Close()
+	defer client.Close()
+	
+	backend.Write(firstData)
+	done := make(chan struct{}, 2)
+	go func() { io.Copy(backend, client); done <- struct{}{} }()
+	go func() { io.Copy(client, backend); done <- struct{}{} }()
+	<-done
+	return nil
 }
