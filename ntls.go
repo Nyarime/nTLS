@@ -139,15 +139,43 @@ func (l *Listener) Accept() (net.Conn, error) {
 		return conn, nil
 
 	case "tls":
-		conn, err := l.ln.Accept()
-		if err != nil {
-			return nil, err
+		for {
+			conn, err := l.ln.Accept()
+			if err != nil {
+				return nil, err
+			}
+			// 先peek 32字节判断是否PSK认证
+			peekBuf := make([]byte, 32)
+			conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+			n, err := io.ReadFull(conn, peekBuf)
+			conn.SetReadDeadline(time.Time{})
+			
+			if err != nil || n < 32 {
+				// 读取失败(可能是HTTP请求) → Portal回落
+				if l.cfg.FallbackCfg != nil {
+					wrapped := &prefixConn{prefix: peekBuf[:n], Conn: conn}
+					go l.cfg.FallbackCfg.Handle(wrapped)
+				} else {
+					conn.Close()
+				}
+				continue
+			}
+			
+			expected := sha256.Sum256(l.psk)
+			if subtle.ConstantTimeCompare(peekBuf, expected[:]) != 1 {
+				// PSK不对 → Portal回落(把已读数据拼回)
+				if l.cfg.FallbackCfg != nil {
+					wrapped := &prefixConn{prefix: peekBuf[:n], Conn: conn}
+					go l.cfg.FallbackCfg.Handle(wrapped)
+				} else {
+					conn.Close()
+				}
+				continue
+			}
+			
+			conn.Write([]byte{0x01}) // ACK
+			return conn, nil
 		}
-		if err := serverAuth(conn, l.psk); err != nil {
-			conn.Close()
-			return nil, err
-		}
-		return conn, nil
 
 	case "fake-tls":
 		return l.acceptFakeTLS()
