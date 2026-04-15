@@ -197,7 +197,7 @@ func verifyRealitySignal(signal, psk []byte) bool {
 	if len(signal) < 16 { return false }
 	ts := int64(binary.BigEndian.Uint64(signal[:8]))
 	now := time.Now().Unix()
-	if now-ts > 90 || ts-now > 90 { return false }
+	if now-ts > 300 || ts-now > 300 { return false }
 	mac := hmac.New(sha256.New, psk)
 	mac.Write([]byte("nrtp:"))
 	mac.Write(signal[:8])
