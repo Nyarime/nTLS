@@ -237,6 +237,7 @@ func (l *Listener) acceptFakeTLS() (net.Conn, error) {
 			}
 		}
 
+		log.Printf("[Reality] isOurs=%v n=%d peek[0]=%d", isOurs, n, peekBuf[0])
 		if !isOurs {
 			go proxyToRealWithData(conn, peekBuf[:n], l.cfg.SNI)
 			continue
