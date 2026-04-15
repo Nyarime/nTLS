@@ -242,10 +242,7 @@ func (l *Listener) acceptFakeTLS() (net.Conn, error) {
 			if l.cfg.FallbackCfg != nil {
 				// v1.5.3: 回落Portal (同端口)
 				prefixed := &prefixConn{prefix: peekBuf[:n], Conn: conn}
-				tlsCfg := &tls.Config{
-					Certificates: []tls.Certificate{l.cert},
-					MinVersion:   tls.VersionTLS12,
-				}
+				tlsCfg := ciscoASATLSConfig(l.cert)
 				tlsConn := tls.Server(prefixed, tlsCfg)
 				if err := tlsConn.Handshake(); err == nil {
 					go l.cfg.FallbackCfg.Handle(tlsConn)
@@ -260,10 +257,7 @@ func (l *Listener) acceptFakeTLS() (net.Conn, error) {
 
 		// 是我们的 → 拼回数据 + 自签名TLS
 		prefixed := &prefixConn{prefix: peekBuf[:n], Conn: conn}
-		tlsCfg := &tls.Config{
-			Certificates: []tls.Certificate{l.cert},
-			MinVersion:   tls.VersionTLS12,
-		}
+		tlsCfg := ciscoASATLSConfig(l.cert)
 		tlsConn := tls.Server(prefixed, tlsCfg)
 		if err := tlsConn.Handshake(); err != nil {
 			conn.Close()
@@ -521,3 +515,31 @@ func makeTLSConfig(cfg *Config) (*tls.Config, error) {
 }
 
 // checkSessionIDKnock 从ClientHello解析SessionID检查knock
+
+// ciscoASATLSConfig 返回模拟Cisco ASA的TLS配置
+// JA3S对齐: FIPS合规CipherSuites, 无ChaCha20, TLS1.2优先
+func ciscoASATLSConfig(cert tls.Certificate) *tls.Config {
+	return &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS12,
+		MaxVersion:   tls.VersionTLS12, // ASA通常TLS1.2
+		CipherSuites: []uint16{
+			// Cisco ASA FIPS偏好顺序 (从vpn.sjsu.edu实测)
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_RSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
+			tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
+			tls.TLS_RSA_WITH_AES_256_CBC_SHA,
+			tls.TLS_RSA_WITH_AES_128_CBC_SHA,
+			// 故意不包含ChaCha20-Poly1305 (ASA不支持)
+		},
+		CurvePreferences: []tls.CurveID{
+			tls.X25519,
+			tls.CurveP256,
+		},
+		// 禁用session ticket(ASA行为)
+		SessionTicketsDisabled: false,
+	}
+}
