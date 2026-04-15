@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"time"
 )
 
 type Fallback struct {
@@ -55,7 +56,8 @@ func serveHTTPOnConn(conn net.Conn, handler http.Handler) {
 		
 		resp := fmt.Sprintf("HTTP/1.1 %d %s\r\n", code, http.StatusText(code))
 		rw.header.Set("Content-Length", fmt.Sprintf("%d", rw.body.Len()))
-		// keep-alive
+		rw.header.Set("Connection", "Keep-Alive")
+		rw.header.Set("Date", time.Now().UTC().Format("Mon, 02 Jan 2006 15:04:05 GMT"))
 		for k, vs := range rw.header {
 			for _, v := range vs {
 				resp += fmt.Sprintf("%s: %s\r\n", k, v)
